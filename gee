@@ -1,0 +1,109 @@
+// 1. Định nghĩa khu vực nghiên cứu (ROI - Region of Interest)
+// Sử dụng một FeatureCollection có sẵn trên GEE hoặc tạo một hình chữ nhật bao quanh Côn Đảo.
+// Để đơn giản, ta sẽ dùng tọa độ xấp xỉ bao quanh quần đảo Côn Đảo.
+
+var conDao_coords = [
+  [106.525, 8.60],
+  [106.75, 8.60],
+  [106.75, 8.78],
+  [106.525, 8.78]
+];
+
+var roi = ee.Geometry.Polygon(conDao_coords);
+Map.centerObject(roi, 11);
+Map.addLayer(roi, {color: 'red'}, 'Khu vực Côn Đảo');
+
+// 2. Định nghĩa Bộ sưu tập ảnh Sentinel-2 L2A và lọc theo tiêu chí
+var S2 = ee.ImageCollection('COPERNICUS/S2_SR_HARMONIZED')
+    .filterBounds(roi)
+    .filterDate('2019-01-01', '2023-12-31')
+    .filterMetadata('CLOUDY_PIXEL_PERCENTAGE', 'less_than', 0.8); // Lọc mây dưới 0.8%
+
+// Hàm Mask mây (tùy chọn nhưng nên có)
+function maskS2clouds(image) {
+  var qa = image.select('QA60');
+  var cloudBitMask = 1 << 10;
+  var cirrusBitMask = 1 << 11;
+  var mask = qa.bitwiseAnd(cloudBitMask).eq(0)
+             .and(qa.bitwiseAnd(cirrusBitMask).eq(0));
+  return image.updateMask(mask).divide(10000); // Chia 10000 để chuyển sang Reflectance
+}
+
+// 3. Áp dụng hàm mask và tạo ảnh Mosaic (lấy ảnh có giá trị pixel thấp nhất -> ít mây/bóng hơn)
+var image = S2.map(maskS2clouds).median().clip(roi); // Sử dụng median để giảm nhiễu
+
+// 4. Định nghĩa các dải (Bands) sẽ được sử dụng cho phân loại
+// B2 (Blue), B3 (Green), B4 (Red), B8 (NIR - Cận Hồng ngoại) là cơ bản.
+// Có thể thêm B5, B6, B7 (Red Edge) và B11, B12 (SWIR) để tăng độ chính xác.
+var bands = ['B2', 'B3', 'B4', 'B5', 'B6', 'B7', 'B8', 'B11', 'B12'];
+
+// 5. Trực quan hóa ảnh Mosaic
+var visualization = {
+  min: 0.0,
+  max: 0.3,
+  bands: ['B4', 'B3', 'B2'], // Màu tự nhiên (Natural Color)
+};
+
+Map.addLayer(image, visualization, 'Ảnh Sentinel-2 Mosaic (2023)');
+
+// Hợp nhất và Gán Nhãn cho Dữ liệu Mẫu
+
+// Ghi chú: Các biến đã được GEE tự động tạo dựa trên tên lớp bạn đặt:
+// var vegetation = ee.FeatureCollection(geometry); 
+// var water = ee.FeatureCollection(geometry_1);
+// ... (tên biến có thể khác nhau tùy thứ tự bạn vẽ)
+
+// 1. Gán thuộc tính 'class' (nhãn số) cho từng lớp
+var vegetation_labeled = vegetation.map(function(feature) {
+  return feature.set('class', 0); // Rừng tự nhiên = 0
+});
+
+var emptyland_labeled = emptyland.map(function(feature) {
+  return feature.set('class', 1); // Đất trống/đồi trọc = 1
+});
+
+var urban_labeled = urban.map(function(feature) {
+  return feature.set('class', 2); // Khu dân cư = 2
+});
+
+var water_labeled = water.map(function(feature) {
+  return feature.set('class', 3); // Mặt nước = 3
+});
+
+var sand_labeled = sand.map(function(feature) {
+  return feature.set('class', 4); // Cát/bãi biển = 4
+});
+
+// 2. Hợp nhất tất cả các lớp đã gán nhãn thành một FeatureCollection duy nhất
+var training_data_merged = vegetation_labeled
+    .merge(emptyland_labeled)
+    .merge(urban_labeled)
+    .merge(water_labeled)
+    .merge(sand_labeled);
+
+// Kiểm tra số lượng mẫu tổng thể (Không bắt buộc, nhưng nên làm)
+print('Tổng số mẫu đã hợp nhất:', training_data_merged.size());
+
+// 6. Lấy giá trị pixel (Training Samples) từ ảnh Mosaic tại các điểm mẫu
+var training = image.select(bands).sampleRegions({
+  collection: training_data_merged, // FeatureCollection đã hợp nhất và gán nhãn
+  properties: ['class'],            // Thuộc tính nhãn cần trích xuất
+  scale: 10,                        // Độ phân giải 10m
+});
+
+// 7. Chia dữ liệu thành tập Huấn luyện và Kiểm tra (Tùy chọn, có thể làm trong Python)
+// Để đơn giản cho việc xuất dữ liệu, chúng ta sẽ xuất TẤT CẢ các mẫu đã lấy.
+
+// 8. Xuất FeatureCollection ra Google Drive dưới dạng CSV
+// Dữ liệu này sẽ được đọc trong môi trường Python/Colab.
+
+Export.table.toDrive({
+  collection: training,
+  description: 'ConDao_TrainingData_ANN',
+  folder: 'GEE_Training_Exports', // Tên thư mục trong Drive
+  fileNamePrefix: 'con_dao_samples',
+  fileFormat: 'CSV' // Định dạng tệp
+});
+
+// 9. CHẠY TASK: Sau khi dán code này, bạn phải nhấn vào tab "Tasks" (bên phải)
+// và nhấn "Run" cho task "ConDao_TrainingData_ANN" để bắt đầu quá trình xuất dữ liệu.
