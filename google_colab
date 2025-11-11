@@ -1,0 +1,78 @@
+# Cài đặt thư viện GEE và Keras nếu cần thiết (Colab đã có sẵn TensorFlow/Keras)
+#!pip install earthengine-api
+
+import pandas as pd
+import numpy as np
+import tensorflow as tf
+from tensorflow.keras.models import Sequential
+from tensorflow.keras.layers import Dense
+from sklearn.model_selection import train_test_split
+from sklearn.preprocessing import MinMaxScaler
+from sklearn.metrics import classification_report, confusion_matrix
+
+# 1. Kết nối Colab với Google Drive để đọc tệp CSV
+from google.colab import drive
+drive.mount('/content/drive')
+
+# 2. Tải dữ liệu CSV đã xuất từ GEE
+# CẬP NHẬT ĐƯỜNG DẪN NÀY DỰA TRÊN VỊ TRÍ TỆP CỦA BẠN TRONG DRIVE
+file_path = '/content/drive/MyDrive/GEE_Training_Exports/con_dao_samples.csv'
+data = pd.read_csv(file_path)
+
+# 3. Chuẩn bị dữ liệu đầu vào (X) và đầu ra (y)
+# Các dải Sentinel-2 của bạn
+bands = ['B2', 'B3', 'B4', 'B5', 'B6', 'B7', 'B8', 'B11', 'B12']
+X = data[bands]
+y = data['class'] # Thuộc tính nhãn (0, 1, 2, 3, 4)
+
+# 4. Chuẩn hóa dữ liệu (Scaling)
+scaler = MinMaxScaler()
+X_scaled = scaler.fit_transform(X)
+
+# 5. Chia dữ liệu thành tập Huấn luyện và Kiểm tra
+# 80% huấn luyện (train), 20% kiểm tra (test)
+X_train, X_test, y_train, y_test = train_test_split(
+    X_scaled, y, test_size=0.2, random_state=42
+)
+
+# 6. Chuyển đổi nhãn y sang One-Hot Encoding (cần cho mô hình ANN)
+y_train_onehot = tf.keras.utils.to_categorical(y_train, num_classes=5)
+y_test_onehot = tf.keras.utils.to_categorical(y_test, num_classes=5)
+
+# 7. Xây dựng Mô hình ANN (MLP)
+model = Sequential([
+    # Input Layer (Kích thước = số lượng dải ảnh)
+    Dense(10, activation='relu', input_shape=(len(bands),)),
+    # Hidden Layer 1
+    Dense(8, activation='relu'),
+    # Hidden Layer 2
+    Dense(6, activation='relu'),
+    # Output Layer (Kích thước = số lượng lớp phủ đất = 5)
+    Dense(5, activation='softmax') # Softmax cho phân loại đa lớp
+])
+
+# 8. Biên dịch (Compile) Mô hình
+model.compile(
+    optimizer='adam',
+    loss='categorical_crossentropy', # Hàm lỗi chuẩn cho phân loại đa lớp
+    metrics=['accuracy']
+)
+
+# 9. Huấn luyện Mô hình
+history = model.fit(
+    X_train, y_train_onehot,
+    epochs=100, # Số lần lặp
+    batch_size=32,
+    validation_data=(X_test, y_test_onehot),
+    verbose=1
+)
+
+# 10. Dự đoán (Predict) trên tập dữ liệu kiểm tra
+y_pred_onehot = model.predict(X_test)
+# Chuyển đổi dự đoán One-Hot sang nhãn số (0, 1, 2, 3, 4)
+y_pred = np.argmax(y_pred_onehot, axis=1)
+
+# 11. Tạo và In Ma trận Nhầm lẫn và Độ chính xác
+print("\n--- KẾT QUẢ ĐÁNH GIÁ MÔ HÌNH ANN ---")
+print("Ma trận Nhầm lẫn:\n", confusion_matrix(y_test, y_pred))
+print("\nBáo cáo Phân loại (Độ chính xác chi tiết):\n", classification_report(y_test, y_pred))
