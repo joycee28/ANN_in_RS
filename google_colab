@@ -6,73 +6,118 @@ import numpy as np
 import tensorflow as tf
 from tensorflow.keras.models import Sequential
 from tensorflow.keras.layers import Dense
-from sklearn.model_selection import train_test_split
 from sklearn.preprocessing import MinMaxScaler
 from sklearn.metrics import classification_report, confusion_matrix
-
-# 1. Kết nối Colab với Google Drive để đọc tệp CSV
 from google.colab import drive
+
+# 1. Kết nối Colab với Google Drive
 drive.mount('/content/drive')
 
-# 2. Tải dữ liệu CSV đã xuất từ GEE
-# CẬP NHẬT ĐƯỜNG DẪN NÀY DỰA TRÊN VỊ TRÍ TỆP CỦA BẠN TRONG DRIVE
-file_path = '/content/drive/MyDrive/GEE_Training_Exports/con_dao_samples.csv'
-data = pd.read_csv(file_path)
+# 2. Định nghĩa các đường dẫn tệp
+# CẬP NHẬT ĐƯỜNG DẪN DƯỚI ĐÂY (chỉ cần đổi thư mục nếu cần)
+train_file_path = '/content/drive/MyDrive/GEE_ANN_Exports/con_dao_TRAINING.csv'
+validation_file_path = '/content/drive/MyDrive/GEE_ANN_Exports/con_dao_VALIDATION.csv'
 
-# 3. Chuẩn bị dữ liệu đầu vào (X) và đầu ra (y)
-# Các dải Sentinel-2 của bạn
-bands = ['B2', 'B3', 'B4', 'B5', 'B6', 'B7', 'B8', 'B11', 'B12']
-X = data[bands]
-y = data['class'] # Thuộc tính nhãn (0, 1, 2, 3, 4)
+# 3. Tải dữ liệu huấn luyện và kiểm tra
+train_data = pd.read_csv(train_file_path)
+validation_data = pd.read_csv(validation_file_path)
 
-# 4. Chuẩn hóa dữ liệu (Scaling)
+# 4. Kiểm tra kích thước dữ liệu (để xác nhận đã tải đúng)
+print(f"Kích thước dữ liệu Huấn luyện: {train_data.shape[0]} mẫu")
+print(f"Kích thước dữ liệu Kiểm tra: {validation_data.shape[0]} mẫu")
+
+# 5. Chuẩn bị dữ liệu đầu vào (X) và đầu ra (y)
+bands = ['B2', 'B3', 'B4', 'B5', 'B6', 'B7', 'B8', 'B11', 'B12'] 
+NUM_CLASSES = 5 # Số lượng lớp phủ đất (0, 1, 2, 3, 4)
+
+# Dữ liệu Huấn luyện
+X_train_raw = train_data[bands]
+y_train = train_data['label'] # ĐÃ SỬA: Dùng 'label' thay vì 'class'
+
+# Dữ liệu Kiểm tra Độc lập
+X_validation_raw = validation_data[bands]
+y_validation = validation_data['label'] # ĐÃ SỬA: Dùng 'label' thay vì 'class'
+
+# 6. Chuẩn hóa dữ liệu (MinMaxScaler)
+# Quan trọng: Chỉ FIT (học) trên tập huấn luyện, sau đó TRANSFORM (biến đổi) cả hai tập
 scaler = MinMaxScaler()
-X_scaled = scaler.fit_transform(X)
+X_train_scaled = scaler.fit_transform(X_train_raw)
+X_validation_scaled = scaler.transform(X_validation_raw)
 
-# 5. Chia dữ liệu thành tập Huấn luyện và Kiểm tra
-# 80% huấn luyện (train), 20% kiểm tra (test)
-X_train, X_test, y_train, y_test = train_test_split(
-    X_scaled, y, test_size=0.2, random_state=42
-)
+# 7. Chuyển đổi nhãn y sang One-Hot Encoding (cần cho mô hình ANN)
+y_train_onehot = tf.keras.utils.to_categorical(y_train, num_classes=NUM_CLASSES)
+y_validation_onehot = tf.keras.utils.to_categorical(y_validation, num_classes=NUM_CLASSES)
 
-# 6. Chuyển đổi nhãn y sang One-Hot Encoding (cần cho mô hình ANN)
-y_train_onehot = tf.keras.utils.to_categorical(y_train, num_classes=5)
-y_test_onehot = tf.keras.utils.to_categorical(y_test, num_classes=5)
-
-# 7. Xây dựng Mô hình ANN (MLP)
+# 8. Xây dựng Mô hình ANN (MLP) - Cấu trúc 3 lớp ẩn
 model = Sequential([
-    # Input Layer (Kích thước = số lượng dải ảnh)
-    Dense(10, activation='relu', input_shape=(len(bands),)),
+    # Input Layer (Kích thước = số lượng dải ảnh = 9)
+    Dense(10, activation='relu', input_shape=(len(bands),)), 
     # Hidden Layer 1
-    Dense(8, activation='relu'),
+    Dense(8, activation='relu'), 
     # Hidden Layer 2
-    Dense(6, activation='relu'),
-    # Output Layer (Kích thước = số lượng lớp phủ đất = 5)
-    Dense(5, activation='softmax') # Softmax cho phân loại đa lớp
+    Dense(6, activation='relu'), 
+    # Output Layer (Kích thước = 5 lớp)
+    Dense(NUM_CLASSES, activation='softmax') 
 ])
 
-# 8. Biên dịch (Compile) Mô hình
+# 9. Biên dịch (Compile) Mô hình
 model.compile(
     optimizer='adam',
-    loss='categorical_crossentropy', # Hàm lỗi chuẩn cho phân loại đa lớp
+    loss='categorical_crossentropy', 
     metrics=['accuracy']
 )
 
-# 9. Huấn luyện Mô hình
+# 10. Huấn luyện Mô hình
+print("Bắt đầu Huấn luyện Mô hình ANN...")
 history = model.fit(
-    X_train, y_train_onehot,
+    X_train_scaled, y_train_onehot,
     epochs=100, # Số lần lặp
     batch_size=32,
-    validation_data=(X_test, y_test_onehot),
+    # Dùng tập kiểm tra độc lập làm validation_data
+    validation_data=(X_validation_scaled, y_validation_onehot), 
     verbose=1
 )
+print("Huấn luyện hoàn tất.")
 
-# 10. Dự đoán (Predict) trên tập dữ liệu kiểm tra
-y_pred_onehot = model.predict(X_test)
-# Chuyển đổi dự đoán One-Hot sang nhãn số (0, 1, 2, 3, 4)
+# 11. Đánh giá cuối cùng trên tập kiểm tra độc lập
+loss, accuracy = model.evaluate(X_validation_scaled, y_validation_onehot, verbose=0)
+print(f"\n--- KẾT QUẢ ĐÁNH GIÁ CUỐI CÙNG TRÊN TẬP KIỂM TRA ĐỘC LẬP ---")
+print(f"Độ chính xác tổng thể (Overall Accuracy): {accuracy:.4f} ({accuracy*100:.2f}%)")
+
+# 12. Dự đoán và In Ma trận Nhầm lẫn
+y_pred_onehot = model.predict(X_validation_scaled)
 y_pred = np.argmax(y_pred_onehot, axis=1)
 
-# 11. Tạo và In Ma trận Nhầm lẫn và Độ chính xác
-print("\n--- KẾT QUẢ ĐÁNH GIÁ MÔ HÌNH ANN ---")
-print("Ma trận Nhầm lẫn:\n", confusion_matrix(y_test, y_pred))
-print("\nBáo cáo Phân loại (Độ chính xác chi tiết):\n", classification_report(y_test, y_pred))
+# Tính Ma trận Nhầm lẫn
+cm = confusion_matrix(y_validation, y_pred)
+print("\nMa trận Nhầm lẫn:\n", cm)
+
+# 13. TÍNH TOÁN VÀ IN CÁC CHỈ SỐ TP, TN, FP, FN (CHO TỪNG LỚP)
+print("\n--- PHÂN TÍCH CHỈ SỐ TP/TN/FP/FN ---")
+
+# Số lượng lớp phủ đất
+NUM_CLASSES = 5 
+# Tên các lớp (dùng để in báo cáo)
+class_names = ['Rừng (0)', 'Đất trống (1)', 'Khu dân cư (2)', 'Nước (3)', 'Cát (4)']
+
+for i in range(NUM_CLASSES):
+    # Lấy giá trị True Positive (TP) - Đường chéo chính
+    TP = cm[i, i]
+    
+    # Lấy giá trị False Negative (FN) - Tổng hàng i, trừ TP
+    FN = np.sum(cm[i, :]) - TP
+    
+    # Lấy giá trị False Positive (FP) - Tổng cột i, trừ TP
+    FP = np.sum(cm[:, i]) - TP
+    
+    # Lấy giá trị True Negative (TN) - Tổng tất cả các mẫu, trừ TP, FN, FP
+    # Hoặc tổng của tất cả các phần tử ngoại trừ hàng i và cột i
+    TN = np.sum(cm) - (TP + FN + FP)
+    
+    print(f"\nLớp: {class_names[i]}")
+    print(f"  True Positive (TP - Nhận diện đúng): {TP}")
+    print(f"  False Negative (FN - Bỏ sót): {FN}")
+    print(f"  False Positive (FP - Dự đoán sai): {FP}")
+    print(f"  True Negative (TN - Phủ định đúng): {TN}")
+
+print("\nBáo cáo Phân loại (Độ chính xác chi tiết):\n", classification_report(y_validation, y_pred))
