@@ -32,11 +32,11 @@ NUM_CLASSES = 5 # Số lượng lớp phủ đất (0, 1, 2, 3, 4)
 
 # Dữ liệu Huấn luyện
 X_train_raw = train_data[bands]
-y_train = train_data['label'] # ĐÃ SỬA: Dùng 'label' thay vì 'class'
+y_train = train_data['label']
 
 # Dữ liệu Kiểm tra Độc lập
 X_validation_raw = validation_data[bands]
-y_validation = validation_data['label'] # ĐÃ SỬA: Dùng 'label' thay vì 'class'
+y_validation = validation_data['label']
 
 # 6. Chuẩn hóa dữ liệu (MinMaxScaler)
 # Quan trọng: Chỉ FIT (học) trên tập huấn luyện, sau đó TRANSFORM (biến đổi) cả hai tập
