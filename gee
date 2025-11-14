@@ -46,35 +46,35 @@ var visualization = {
 
 Map.addLayer(image, visualization, 'Ảnh Sentinel-2 Mosaic (2023)');
 
-// Hợp nhất và Gán Nhãn cho Dữ liệu Mẫu
+// 6. Hợp nhất và Gán Nhãn cho Dữ liệu Mẫu
 
 // Ghi chú: Các biến đã được GEE tự động tạo dựa trên tên lớp bạn đặt:
 // var vegetation = ee.FeatureCollection(geometry); 
 // var water = ee.FeatureCollection(geometry_1);
 // ... (tên biến có thể khác nhau tùy thứ tự bạn vẽ)
 
-// 1. Gán thuộc tính 'class' (nhãn số) cho từng lớp
+// 6.1. Gán thuộc tính 'class' (nhãn số) cho từng lớp
 var vegetation_labeled = vegetation.map(function(feature) {
-  return feature.set('class', 0); // Rừng tự nhiên = 0
+  return feature.set('label', 0); // Rừng tự nhiên = 0
 });
 
 var emptyland_labeled = emptyland.map(function(feature) {
-  return feature.set('class', 1); // Đất trống/đồi trọc = 1
+  return feature.set('label', 1); // Đất trống/đồi trọc = 1
 });
 
 var urban_labeled = urban.map(function(feature) {
-  return feature.set('class', 2); // Khu dân cư = 2
+  return feature.set('label', 2); // Khu dân cư = 2
 });
 
 var water_labeled = water.map(function(feature) {
-  return feature.set('class', 3); // Mặt nước = 3
+  return feature.set('label', 3); // Mặt nước = 3
 });
 
 var sand_labeled = sand.map(function(feature) {
-  return feature.set('class', 4); // Cát/bãi biển = 4
+  return feature.set('label', 4); // Cát/bãi biển = 4
 });
 
-// 2. Hợp nhất tất cả các lớp đã gán nhãn thành một FeatureCollection duy nhất
+// 6.2. Hợp nhất tất cả các lớp đã gán nhãn thành một FeatureCollection duy nhất
 var training_data_merged = vegetation_labeled
     .merge(emptyland_labeled)
     .merge(urban_labeled)
@@ -82,28 +82,97 @@ var training_data_merged = vegetation_labeled
     .merge(sand_labeled);
 
 // Kiểm tra số lượng mẫu tổng thể (Không bắt buộc, nhưng nên làm)
-print('Tổng số mẫu đã hợp nhất:', training_data_merged.size());
+print('Tổng số mẫu HUẤN LUYỆN (Training):', training_data_merged.size());
 
-// 6. Lấy giá trị pixel (Training Samples) từ ảnh Mosaic tại các điểm mẫu
-var training = image.select(bands).sampleRegions({
+// 6.3. Gán thuộc tính 'label' cho từng lớp KIỂM TRA
+var veg_val_labeled = vegetation_validation.map(function(feature) {
+  return feature.set('label', 0);
+});
+var emp_val_labeled = emptyland_validation.map(function(feature) {
+  return feature.set('label', 1);
+});
+var urb_val_labeled = urban_validation.map(function(feature) {
+  return feature.set('label', 2);
+});
+var wat_val_labeled = water_validation.map(function(feature) {
+  return feature.set('label', 3);
+});
+var san_val_labeled = sand_validation.map(function(feature) {
+  return feature.set('label', 4);
+});
+
+// 6.4. Hợp nhất dữ liệu KIỂM TRA ĐỘC LẬP
+var validation_data_merged = veg_val_labeled
+    .merge(emp_val_labeled)
+    .merge(urb_val_labeled)
+    .merge(wat_val_labeled)
+    .merge(san_val_labeled);
+print('Tổng số mẫu KIỂM TRA ĐỘC LẬP (Validation):', validation_data_merged.size());
+
+// 7. Lấy giá trị pixel (Training Samples) từ ảnh Mosaic tại các điểm mẫu
+// 7.1. Trích xuất giá trị pixel cho HUẤN LUYỆN (TRAINING PIXELS)
+var training_pixels = image.select(bands).sampleRegions({
   collection: training_data_merged, // FeatureCollection đã hợp nhất và gán nhãn
-  properties: ['class'],            // Thuộc tính nhãn cần trích xuất
+  properties: ['label'],            // Thuộc tính nhãn cần trích xuất 
   scale: 10,                        // Độ phân giải 10m
 });
 
-// 7. Chia dữ liệu thành tập Huấn luyện và Kiểm tra (Tùy chọn, có thể làm trong Python)
-// Để đơn giản cho việc xuất dữ liệu, chúng ta sẽ xuất TẤT CẢ các mẫu đã lấy.
-
-// 8. Xuất FeatureCollection ra Google Drive dưới dạng CSV
-// Dữ liệu này sẽ được đọc trong môi trường Python/Colab.
-
-Export.table.toDrive({
-  collection: training,
-  description: 'ConDao_TrainingData_ANN',
-  folder: 'GEE_Training_Exports', // Tên thư mục trong Drive
-  fileNamePrefix: 'con_dao_samples',
-  fileFormat: 'CSV' // Định dạng tệp
+// 7.1. Trích xuất giá trị pixel cho KIỂM TRA (VALIDATION PIXELS)
+var validation_pixels = image.select(bands).sampleRegions({
+  collection: validation_data_merged, 
+  properties: ['label'],             
+  scale: 10,                        
 });
 
-// 9. CHẠY TASK: Sau khi dán code này, bạn phải nhấn vào tab "Tasks" (bên phải)
-// và nhấn "Run" cho task "ConDao_TrainingData_ANN" để bắt đầu quá trình xuất dữ liệu.
+// --- BƯỚC 8: XUẤT TẤT CẢ TÁC VỤ (TASKS) RA GOOGLE DRIVE ---
+
+// 8.1. XUẤT BỘ 1: DỮ LIỆU PIXEL HUẤN LUYỆN (CHO COLAB) - CSV
+Export.table.toDrive({
+    collection: training_pixels,
+    description: 'A1_TRAIN_DATA',
+    folder: 'GEE_ANN_Exports',
+    fileNamePrefix: 'con_dao_TRAINING',
+    fileFormat: 'CSV'
+});
+
+// 8.2. XUẤT BỘ 2: DỮ LIỆU PIXEL KIỂM TRA ĐỘC LẬP (CHO COLAB) - CSV
+Export.table.toDrive({
+    collection: validation_pixels,
+    description: 'A2_VALIDATION_DATA',
+    folder: 'GEE_ANN_Exports',
+    fileNamePrefix: 'con_dao_VALIDATION',
+    fileFormat: 'CSV'
+});
+
+// 8.3. XUẤT BỘ 3: VÙNG MẪU HUẤN LUYỆN (CHO ENVI) - GeoJSON
+// SỬ DỤNG training_data_merged (FeatureCollection Vector)
+Export.table.toDrive({
+    collection: training_data_merged, 
+    description: 'C1_TRAINING_ROI_ENVI',
+    folder: 'GEE_ANN_Exports',
+    fileNamePrefix: 'con_dao_TRAINING_ROI',
+    fileFormat: 'GeoJSON' // Định dạng xuất ROI cho ENVI
+});
+
+// 8.4. XUẤT BỘ 4: VÙNG MẪU KIỂM TRA (CHO ENVI) - GeoJSON
+// SỬ DỤNG validation_data_merged (FeatureCollection Vector)
+Export.table.toDrive({
+    collection: validation_data_merged,
+    description: 'C2_VALIDATION_ROI_ENVI',
+    folder: 'GEE_ANN_Exports',
+    fileNamePrefix: 'con_dao_VALIDATION_ROI',
+    fileFormat: 'GeoJSON' // Định dạng xuất ROI cho ENVI
+});
+
+// 8.5. XUẤT BỘ 5: ẢNH MOSAIC GỐC (CHO ENVI) - GeoTIFF
+Export.image.toDrive({
+    image: image.select(bands).clip(roi),
+    description: 'B_SENTINEL2_ENVI',
+    folder: 'GEE_ANN_Exports',
+    fileNamePrefix: 'con_dao_mosaic',
+    scale: 10,
+    maxPixels: 1e13,
+    fileFormat: 'GeoTIFF'
+});
+
+// NHẮC NHỞ: Sau khi chạy code, bạn cần RUN cả 5 tác vụ (Tasks) trong tab Tasks!
