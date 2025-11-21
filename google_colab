@@ -9,6 +9,7 @@ from tensorflow.keras.layers import Dense
 from sklearn.preprocessing import MinMaxScaler
 from sklearn.metrics import classification_report, confusion_matrix
 from google.colab import drive
+from sklearn.metrics import classification_report, confusion_matrix, cohen_kappa_score
 
 # 1. Kết nối Colab với Google Drive
 drive.mount('/content/drive')
@@ -91,6 +92,11 @@ y_pred = np.argmax(y_pred_onehot, axis=1)
 # Tính Ma trận Nhầm lẫn
 cm = confusion_matrix(y_validation, y_pred)
 print("\nMa trận Nhầm lẫn:\n", cm)
+
+# TÍNH TOÁN HỆ SỐ KAPPA
+# Kappa score cần dữ liệu nhãn thực tế (y_validation) và nhãn dự đoán (y_pred)
+kappa_score = cohen_kappa_score(y_validation, y_pred)
+print(f"\nHệ số Kappa (Kappa Coefficient): {kappa_score:.4f}")
 
 # 13. TÍNH TOÁN VÀ IN CÁC CHỈ SỐ TP, TN, FP, FN (CHO TỪNG LỚP)
 print("\n--- PHÂN TÍCH CHỈ SỐ TP/TN/FP/FN ---")
